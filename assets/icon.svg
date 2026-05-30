@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Safety Observation icon">
+  <rect width="512" height="512" rx="96" fill="#0f766e"/>
+  <path d="M256 72 116 124v106c0 92 58 173 140 210 82-37 140-118 140-210V124L256 72Z" fill="#ffffff"/>
+  <path d="M229 323 154 248l34-34 41 41 96-96 34 34-130 130Z" fill="#0f766e"/>
+</svg>

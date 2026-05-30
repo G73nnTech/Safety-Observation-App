@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0f766e">
+    <meta name="description" content="Mobile-first safety observation reporting app">
+    <title>Safety Observation</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="assets/icon.svg">
+    <link rel="stylesheet" href="styles.css?v=15">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Site Safety</p>
+          <h1>Observation</h1>
+        </div>
+        <button class="icon-button" id="installButton" type="button" hidden aria-label="Install app" title="Install app">
+          <span aria-hidden="true">+</span>
+        </button>
+      </header>
+      <section class="app-notice" id="appNotice" hidden></section>
+
+      <main>
+        <section class="setup-panel" id="setupPanel" hidden>
+          <div>
+            <p class="eyebrow">First Run</p>
+            <h2>Set up your app</h2>
+            <p class="muted">Choose how this device will be used. Admins can review reports, create QR invites, print, and email summaries.</p>
+          </div>
+          <div class="role-grid">
+            <button class="choice-card" type="button" data-role-choice="admin">
+              <strong>Admin</strong>
+              <span>Manage group reports and close-outs.</span>
+            </button>
+            <button class="choice-card" type="button" data-role-choice="member">
+              <strong>Observer</strong>
+              <span>Submit and close your own observations.</span>
+            </button>
+          </div>
+        </section>
+
+        <nav class="tabs" aria-label="Primary">
+          <button class="tab is-active" type="button" data-view="report">Report</button>
+          <button class="tab" type="button" data-view="dashboard">Dashboard</button>
+          <button class="tab" type="button" data-view="admin">Admin</button>
+        </nav>
+
+        <section class="view is-active" id="reportView" aria-labelledby="reportTitle">
+          <div class="section-head">
+            <div>
+              <h2 id="reportTitle">New observation</h2>
+            </div>
+            <span class="pill" id="roleBadge">Observer</span>
+          </div>
+
+          <form id="observationForm" class="form-stack report-stage-form observation-stage">
+            <div class="stage-label">Observation reporting stage</div>
+            <div class="date-time-grid">
+              <label>
+                Date
+                <input id="dateInput" name="date" type="date" required>
+              </label>
+              <label>
+                Time
+                <input id="timeInput" name="time" type="time" required>
+              </label>
+            </div>
+
+            <fieldset>
+              <legend>Category</legend>
+              <div class="category-grid" id="categoryGrid">
+                <label class="category-card">
+                  <input type="radio" name="category" value="Near Miss" required>
+                  <span>Near Miss</span>
+                </label>
+                <label class="category-card">
+                  <input type="radio" name="category" value="Unsafe Act">
+                  <span>Unsafe Act</span>
+                </label>
+                <label class="category-card">
+                  <input type="radio" name="category" value="Unsafe Condition">
+                  <span>Unsafe Condition</span>
+                </label>
+                <label class="category-card">
+                  <input type="radio" name="category" value="Good Observation">
+                  <span>Good Observation</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <label>
+              Observation
+              <textarea id="observationInput" name="observation" rows="5" placeholder="What did you see?" required></textarea>
+            </label>
+
+            <label>
+              Immediate / Corrective action
+              <textarea id="actionInput" name="action" rows="4" placeholder="What action was taken or is needed?" required></textarea>
+            </label>
+
+            <label>
+              Photo
+              <div class="photo-control">
+                <button class="secondary-button camera-button" id="takePhotoButton" type="button" aria-label="Take observation photo">
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M14.5 4 16 6h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l1.5-2h5Z"></path>
+                    <circle cx="12" cy="12.5" r="3.5"></circle>
+                  </svg>
+                  Take photo
+                </button>
+                <input id="photoInput" name="photo" type="file" accept="image/*" capture="environment">
+              </div>
+            </label>
+            <div class="photo-preview" id="photoPreview" hidden>
+              <img id="photoPreviewImage" alt="Selected observation photo">
+              <button class="text-button" id="removePhotoButton" type="button">Remove photo</button>
+            </div>
+
+            <div class="send-panel">
+              <label>
+                Send to email
+                <input id="recipientInput" name="recipient" type="email" placeholder="safety.manager@example.com">
+              </label>
+              <label class="checkbox-line">
+                <input id="observerCloseInput" name="observerCanClose" type="checkbox" checked>
+                <span>Observer can close this item</span>
+              </label>
+            </div>
+
+            <section class="stage-panel closeout-stage" id="observerCloseoutPanel">
+              <div class="stage-label">Close-out</div>
+              <label>
+                Action taken
+                <textarea id="reportCloseoutActionInput" name="reportCloseoutAction" rows="3" placeholder="What action was taken?"></textarea>
+              </label>
+              <label>
+                Close-out photo
+                <div class="photo-control">
+                  <button class="secondary-button camera-button" id="takeReportCloseoutPhotoButton" type="button" aria-label="Take close-out photo">
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                      <path d="M14.5 4 16 6h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l1.5-2h5Z"></path>
+                      <circle cx="12" cy="12.5" r="3.5"></circle>
+                    </svg>
+                    Take close-out photo
+                  </button>
+                  <input id="reportCloseoutPhotoInput" name="reportCloseoutPhoto" type="file" accept="image/*" capture="environment">
+                </div>
+              </label>
+              <p class="stage-copy" id="reportCloseoutHelp">Type the action taken here if the observer will close this item now. After submitting, approve it from the Dashboard.</p>
+            </section>
+
+            <button class="primary-button" id="submitObservationButton" type="submit">Submit observation</button>
+          </form>
+
+          <div class="report-process">
+            <section class="stage-panel final-stage">
+              <div class="stage-label">Status</div>
+              <button class="secondary-button approval-button" type="button" disabled>Pending Approval</button>
+              <button class="secondary-button state-button" type="button" disabled>OPEN</button>
+              <p class="stage-copy">After approval, OPEN changes to CLOSED and turns green.</p>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="dashboardView" aria-labelledby="dashboardTitle">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Analysis</p>
+              <h2 id="dashboardTitle">Dashboard</h2>
+            </div>
+            <button class="ghost-button" id="seedButton" type="button">Add demo data</button>
+          </div>
+
+          <div class="filter-grid">
+            <label>
+              Period
+              <select id="periodSelect">
+                <option value="week">Weekly</option>
+                <option value="month" selected>Monthly</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
+            <label>
+              From
+              <input id="fromInput" type="date">
+            </label>
+            <label>
+              To
+              <input id="toInput" type="date">
+            </label>
+          </div>
+
+          <div class="stats-grid" id="statsGrid"></div>
+          <div class="chart-wrap" id="weeklyChartWrap">
+            <div class="chart-title">
+              <div>
+                <h3>Weekly observation graph</h3>
+                <p class="muted">Tap a colored segment to filter the summary below.</p>
+              </div>
+              <button class="ghost-button" id="clearGraphFilterButton" type="button" hidden>Clear filter</button>
+            </div>
+            <canvas id="categoryChart" width="720" height="380" aria-label="Weekly observation category chart"></canvas>
+          </div>
+
+          <div class="action-row">
+            <button class="secondary-button" id="emailReportButton" type="button">Email report</button>
+            <button class="secondary-button" id="printReportButton" type="button">Print</button>
+            <button class="secondary-button" id="exportCsvButton" type="button">Export CSV</button>
+            <button class="ghost-button" id="showExcludedButton" type="button">Show excluded</button>
+          </div>
+
+          <div class="list-head">
+            <h3>Action to be taken / Close-out status</h3>
+            <span id="resultCount" class="muted"></span>
+          </div>
+          <div class="observation-list" id="observationList"></div>
+        </section>
+
+        <section class="view" id="adminView" aria-labelledby="adminTitle">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Group</p>
+              <h2 id="adminTitle">Admin</h2>
+            </div>
+            <button class="ghost-button" id="resetSetupButton" type="button">Change role</button>
+          </div>
+
+          <div class="admin-grid">
+            <div class="admin-panel">
+              <h3>Invite by QR</h3>
+              <p class="muted">Share this with regular group members. Opening it sets their app as observer mode for this group.</p>
+              <img id="qrImage" class="qr-image" alt="Group invite QR code">
+              <canvas id="qrCanvas" width="220" height="220" aria-label="Offline invite code" hidden></canvas>
+              <button class="secondary-button" id="copyInviteButton" type="button">Copy invite link</button>
+            </div>
+
+            <div class="admin-panel">
+              <h3>Settings</h3>
+              <label>
+                Group name
+                <input id="groupNameInput" type="text" maxlength="48">
+              </label>
+              <label>
+                Default email
+                <input id="defaultEmailInput" type="email" placeholder="safety.manager@example.com">
+              </label>
+              <button class="primary-button" id="saveSettingsButton" type="button">Save settings</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="observationTemplate">
+      <article class="observation-card">
+        <div class="card-top">
+          <div>
+            <span class="category-chip"></span>
+            <h4></h4>
+          </div>
+          <span class="status-chip"></span>
+        </div>
+        <section class="stage-panel observation-stage">
+          <div class="stage-label">Observation reporting stage</div>
+          <p class="card-action"></p>
+          <img class="card-photo" alt="Observation photo" hidden>
+        </section>
+        <section class="stage-panel closeout-stage">
+          <div class="stage-label">Close-out stage</div>
+          <div class="closeout-summary" hidden></div>
+          <img class="closeout-photo" alt="Close-out evidence photo" hidden>
+        </section>
+        <div class="card-meta"></div>
+        <form class="closeout-form stage-panel closeout-entry-stage">
+          <label>
+            Action taken
+            <textarea name="closeoutAction" rows="3" placeholder="What action was taken?"></textarea>
+          </label>
+          <label>
+            Close-out photo
+            <div class="photo-control">
+              <button class="secondary-button camera-button closeout-camera-button" type="button" aria-label="Take close-out photo">
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M14.5 4 16 6h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l1.5-2h5Z"></path>
+                  <circle cx="12" cy="12.5" r="3.5"></circle>
+                </svg>
+                Take close-out photo
+              </button>
+              <input name="closeoutPhoto" type="file" accept="image/*" capture="environment">
+            </div>
+          </label>
+          <button class="primary-button" type="submit">Submit close-out</button>
+        </form>
+        <div class="card-controls final-stage">
+          <div class="stage-label">Status</div>
+          <button class="secondary-button approval-button" type="button">Pending Approval</button>
+          <button class="secondary-button state-button" type="button">OPEN</button>
+          <button class="secondary-button exclude-button" type="button">Exclude from dashboard</button>
+          <button class="ghost-button email-button" type="button">Email</button>
+          <p class="approval-help"></p>
+        </div>
+      </article>
+    </template>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js?v=15" defer></script>
+  </body>
+</html>
