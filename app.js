@@ -189,7 +189,7 @@ async function loadRemoteObservations() {
     .order("updated_at", { ascending: false });
 
   if (error) {
-    setNotice("Online sync is not ready yet. Run supabase-setup.sql in Supabase, then reload.");
+    setNotice(`Online sync is not ready yet: ${error.message}`);
     return;
   }
 
@@ -213,7 +213,7 @@ async function saveObservationRemote(item) {
     });
 
   if (error) {
-    setNotice("Saved on this device. Online sync failed; check Supabase table setup.");
+    setNotice(`Saved on this device. Online sync failed: ${error.message}`);
   }
 }
 

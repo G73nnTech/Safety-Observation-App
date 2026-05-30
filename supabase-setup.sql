@@ -7,6 +7,9 @@ create table if not exists public.safety_observations (
 
 alter table public.safety_observations enable row level security;
 
+grant usage on schema public to anon;
+grant select, insert, update, delete on public.safety_observations to anon;
+
 drop policy if exists "Allow public read for prototype" on public.safety_observations;
 create policy "Allow public read for prototype"
 on public.safety_observations
