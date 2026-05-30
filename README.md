@@ -27,7 +27,16 @@ http://127.0.0.1:4173/
 - Printable report, CSV export, and email report handoff.
 - Admin settings for group name/default email.
 - Admin invite link and QR code for regular observers.
+- Supabase shared observation sync with local device fallback.
+
+## Supabase Setup
+
+1. Open Supabase SQL Editor.
+2. Paste and run the contents of `supabase-setup.sql`.
+3. Deploy or refresh the app.
+
+The current Supabase setup is a prototype policy that allows public browser users to read and update observations. Before production use, add authentication and tighter Row Level Security policies.
 
 ## Notes
 
-This version stores data in the browser on the device using `localStorage`. The next production step is adding a backend database and authentication so multiple users can share one live group dashboard.
+The app keeps a local browser copy so it can still work if the network is unavailable. Online sync uses Supabase when the shared table has been created.

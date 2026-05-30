@@ -1,4 +1,8 @@
 const STORAGE_KEY = "safety-observation-state-v1";
+const SUPABASE_URL = "https://bwgznqgisfmhxhpqcjoi.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_RbUyN4maE8lXsGsle4o6Jg_V85BK3Kh";
+const SUPABASE_TABLE = "safety_observations";
+const SUPABASE_GROUP_ID = "main";
 const CATEGORY_COLORS = {
   "Near Miss": "#f59e0b",
   "Unsafe Act": "#dc2626",
@@ -22,6 +26,8 @@ let deferredInstallPrompt = null;
 let graphFilter = null;
 let chartHitRegions = [];
 let showExcluded = false;
+let supabaseClient = null;
+let remoteSyncReady = false;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -62,7 +68,7 @@ const elements = {
 
 document.addEventListener("DOMContentLoaded", init);
 
-function init() {
+async function init() {
   applyInviteFromUrl();
   setCurrentDateTime();
   setDefaultPeriod();
@@ -70,6 +76,8 @@ function init() {
   bindEvents();
   renderAll();
   registerServiceWorker();
+  initSupabase();
+  await loadRemoteObservations();
 }
 
 function bindEvents() {
@@ -160,6 +168,53 @@ function normalizeObservation(item, deviceId = state?.deviceId || defaultState.d
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function initSupabase() {
+  if (!window.supabase?.createClient) {
+    setNotice("Online sync is not loaded. The app is using this device only.");
+    return;
+  }
+
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+}
+
+async function loadRemoteObservations() {
+  if (!supabaseClient) return;
+
+  const { data, error } = await supabaseClient
+    .from(SUPABASE_TABLE)
+    .select("id,payload,updated_at")
+    .eq("group_id", SUPABASE_GROUP_ID)
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    setNotice("Online sync is not ready yet. Run supabase-setup.sql in Supabase, then reload.");
+    return;
+  }
+
+  remoteSyncReady = true;
+  state.observations = (data || []).map((row) => normalizeObservation(row.payload, state.deviceId));
+  saveState();
+  renderDashboard();
+  renderNotice();
+}
+
+async function saveObservationRemote(item) {
+  if (!supabaseClient || !remoteSyncReady) return;
+
+  const { error } = await supabaseClient
+    .from(SUPABASE_TABLE)
+    .upsert({
+      id: item.id,
+      group_id: SUPABASE_GROUP_ID,
+      payload: item,
+      updated_at: new Date().toISOString()
+    });
+
+  if (error) {
+    setNotice("Saved on this device. Online sync failed; check Supabase table setup.");
+  }
 }
 
 function applyInviteFromUrl() {
@@ -279,6 +334,7 @@ async function handleSubmit(event) {
 
   state.observations.unshift(observation);
   saveState();
+  await saveObservationRemote(observation);
   elements.form.reset();
   setCurrentDateTime();
   elements.recipient.value = state.defaultEmail;
@@ -605,6 +661,7 @@ function toggleDashboardExclusion(id) {
   if (!item) return;
   item.excludedFromDashboard = !item.excludedFromDashboard;
   saveState();
+  saveObservationRemote(item);
   renderDashboard();
   showToast(item.excludedFromDashboard ? "Removed from dashboard." : "Included in dashboard.");
 }
@@ -634,6 +691,7 @@ async function handleCloseoutSubmit(event) {
   item.closeoutSubmittedAt = new Date().toISOString();
   item.status = "Close-out Submitted";
   saveState();
+  await saveObservationRemote(item);
   renderDashboard();
   setNotice("Close-out submitted. The observer can now confirm and close it.");
   showToast("Close-out submitted.");
@@ -645,6 +703,7 @@ function closeObservation(id) {
   item.status = "Closed";
   item.closedAt = new Date().toISOString();
   saveState();
+  saveObservationRemote(item);
   renderDashboard();
   showToast("Observation closed.");
 }
@@ -774,6 +833,7 @@ function emailReport() {
 function openObservationEmail(item) {
   item.emailPreparedAt = new Date().toISOString();
   saveState();
+  saveObservationRemote(item);
   renderNotice();
   const subject = `Safety observation close-out: ${item.category}`;
   const body = [
@@ -859,6 +919,7 @@ function seedDemoData() {
     });
   });
   saveState();
+  Promise.all(state.observations.slice(0, samples.length).map((item) => saveObservationRemote(item)));
   renderDashboard();
   showToast("Demo data added.");
 }
