@@ -28,6 +28,7 @@ http://127.0.0.1:4173/
 - Admin settings for group name/default email.
 - Admin invite link and QR code for regular observers.
 - Supabase shared observation sync with local device fallback.
+- Supabase email/password login records the observer email on each observation.
 
 ## Supabase Setup
 
@@ -35,7 +36,7 @@ http://127.0.0.1:4173/
 2. Paste and run the contents of `supabase-setup.sql`.
 3. Deploy or refresh the app.
 
-The current Supabase setup is a prototype policy that allows public browser users to read and update observations. Before production use, add authentication and tighter Row Level Security policies.
+The current Supabase setup requires signed-in users, but role permissions are still prototype-level. Before production use, tighten Row Level Security so only admins can administer all records.
 
 ## Notes
 

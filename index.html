@@ -9,7 +9,7 @@
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="assets/icon.svg">
-    <link rel="stylesheet" href="styles.css?v=19">
+    <link rel="stylesheet" href="styles.css?v=20">
   </head>
   <body>
     <div class="app-shell">
@@ -18,13 +18,39 @@
           <p class="eyebrow">Site Safety</p>
           <h1>Observation</h1>
         </div>
-        <button class="icon-button" id="installButton" type="button" hidden aria-label="Install app" title="Install app">
-          <span aria-hidden="true">+</span>
-        </button>
+        <div class="top-actions">
+          <span class="user-pill" id="userBadge">Not signed in</span>
+          <button class="ghost-button" id="signOutButton" type="button" hidden>Sign out</button>
+          <button class="icon-button" id="installButton" type="button" hidden aria-label="Install app" title="Install app">
+            <span aria-hidden="true">+</span>
+          </button>
+        </div>
       </header>
       <section class="app-notice" id="appNotice" hidden></section>
 
       <main>
+        <section class="setup-panel auth-panel" id="authPanel">
+          <div>
+            <p class="eyebrow">Login</p>
+            <h2>Sign in to continue</h2>
+            <p class="muted">Your observations will show your email as the observer.</p>
+          </div>
+          <form class="form-stack" id="authForm">
+            <label>
+              Email
+              <input id="authEmailInput" type="email" autocomplete="email" required>
+            </label>
+            <label>
+              Password
+              <input id="authPasswordInput" type="password" autocomplete="current-password" minlength="6" required>
+            </label>
+            <div class="action-row">
+              <button class="primary-button" id="signInButton" type="submit">Sign in</button>
+              <button class="secondary-button" id="signUpButton" type="button">Create account</button>
+            </div>
+          </form>
+        </section>
+
         <section class="setup-panel" id="setupPanel" hidden>
           <div>
             <p class="eyebrow">First Run</p>
@@ -311,6 +337,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=19" defer></script>
+    <script src="app.js?v=20" defer></script>
   </body>
 </html>

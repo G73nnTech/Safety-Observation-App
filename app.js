@@ -28,12 +28,20 @@ let chartHitRegions = [];
 let showExcluded = false;
 let supabaseClient = null;
 let remoteSyncReady = false;
+let currentUser = null;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 const elements = {
   setupPanel: $("#setupPanel"),
+  authPanel: $("#authPanel"),
+  authForm: $("#authForm"),
+  authEmail: $("#authEmailInput"),
+  authPassword: $("#authPasswordInput"),
+  signUp: $("#signUpButton"),
+  signOut: $("#signOutButton"),
+  userBadge: $("#userBadge"),
   roleBadge: $("#roleBadge"),
   form: $("#observationForm"),
   date: $("#dateInput"),
@@ -79,6 +87,7 @@ async function init() {
   renderAll();
   registerServiceWorker();
   initSupabase();
+  await initAuth();
   await loadRemoteObservations();
 }
 
@@ -97,6 +106,9 @@ function bindEvents() {
     });
   });
 
+  elements.authForm.addEventListener("submit", handleSignIn);
+  elements.signUp.addEventListener("click", handleSignUp);
+  elements.signOut.addEventListener("click", handleSignOut);
   elements.form.addEventListener("submit", handleSubmit);
   elements.photo.addEventListener("change", handlePhotoChange);
   elements.cameraPhoto.addEventListener("change", handlePhotoChange);
@@ -160,6 +172,8 @@ function loadState() {
 function normalizeObservation(item, deviceId = state?.deviceId || defaultState.deviceId) {
   return {
     observerId: deviceId,
+    observerUserId: "",
+    observerEmail: "",
     excludedFromDashboard: false,
     closeoutAction: "",
     closeoutPhoto: "",
@@ -182,8 +196,89 @@ function initSupabase() {
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 }
 
-async function loadRemoteObservations() {
+async function initAuth() {
   if (!supabaseClient) return;
+
+  const { data } = await supabaseClient.auth.getSession();
+  currentUser = data.session?.user || null;
+  supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+    currentUser = session?.user || null;
+    renderAuthState();
+    if (currentUser) {
+      await loadRemoteObservations();
+    }
+  });
+  renderAuthState();
+}
+
+async function handleSignIn(event) {
+  event.preventDefault();
+  if (!supabaseClient) {
+    showToast("Online login is not available.");
+    return;
+  }
+
+  const email = elements.authEmail.value.trim();
+  const password = elements.authPassword.value;
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) {
+    showToast(error.message);
+    return;
+  }
+  elements.authPassword.value = "";
+  showToast("Signed in.");
+}
+
+async function handleSignUp() {
+  if (!supabaseClient) {
+    showToast("Online login is not available.");
+    return;
+  }
+
+  const email = elements.authEmail.value.trim();
+  const password = elements.authPassword.value;
+  if (!email || password.length < 6) {
+    showToast("Enter an email and a password of at least 6 characters.");
+    return;
+  }
+
+  const { data, error } = await supabaseClient.auth.signUp({ email, password });
+  if (error) {
+    showToast(error.message);
+    return;
+  }
+  elements.authPassword.value = "";
+  if (!data.session) {
+    setNotice("Account created. Check your email to confirm, then sign in.");
+  } else {
+    showToast("Account created and signed in.");
+  }
+}
+
+async function handleSignOut() {
+  if (!supabaseClient) return;
+  await supabaseClient.auth.signOut();
+  currentUser = null;
+  renderAuthState();
+  showToast("Signed out.");
+}
+
+function renderAuthState() {
+  const signedIn = Boolean(currentUser);
+  elements.authPanel.hidden = signedIn;
+  elements.userBadge.textContent = signedIn ? currentUser.email : "Not signed in";
+  elements.signOut.hidden = !signedIn;
+  elements.form.querySelectorAll("input, textarea, button").forEach((control) => {
+    if (control.id === "installButton") return;
+    control.disabled = !signedIn;
+  });
+  if (signedIn) {
+    updateObserverCloseoutPanel();
+  }
+}
+
+async function loadRemoteObservations() {
+  if (!supabaseClient || !currentUser) return;
 
   const { data, error } = await supabaseClient
     .from(SUPABASE_TABLE)
@@ -204,7 +299,7 @@ async function loadRemoteObservations() {
 }
 
 async function saveObservationRemote(item) {
-  if (!supabaseClient || !remoteSyncReady) return;
+  if (!supabaseClient || !currentUser || !remoteSyncReady) return;
 
   const { error } = await supabaseClient
     .from(SUPABASE_TABLE)
@@ -309,6 +404,11 @@ function clearPhoto() {
 
 async function handleSubmit(event) {
   event.preventDefault();
+  if (!currentUser) {
+    showToast("Sign in before submitting an observation.");
+    return;
+  }
+
   const data = new FormData(elements.form);
   const observerCloseoutAction = data.get("reportCloseoutAction")?.trim() || "";
   const observerCloseoutPhotoFile = data.get("reportCloseoutPhoto")?.size
@@ -334,6 +434,8 @@ async function handleSubmit(event) {
     emailPreparedAt: "",
     createdByRole: state.role,
     observerId: state.deviceId,
+    observerUserId: currentUser.id,
+    observerEmail: currentUser.email,
     createdAt: new Date().toISOString(),
     closedAt: ""
   };
@@ -596,7 +698,8 @@ function renderObservationList(observations) {
     card.querySelector("h4").textContent = item.observation;
     card.querySelector(".card-action").textContent = `Action to be taken: ${item.action}`;
     const assignedTo = item.recipient || state.defaultEmail || "Not assigned";
-    card.querySelector(".card-meta").textContent = `${item.date} ${item.time} - ${item.createdByRole} - Assigned to: ${assignedTo}`;
+    const observedBy = item.observerEmail || "Unknown observer";
+    card.querySelector(".card-meta").textContent = `${item.date} ${item.time} - Observed by: ${observedBy} - Assigned to: ${assignedTo}`;
     card.querySelector(".closeout-form").dataset.id = item.id;
 
     const image = card.querySelector(".card-photo");
@@ -621,7 +724,8 @@ function renderObservationList(observations) {
 
     const closeoutForm = card.querySelector(".closeout-form");
     const raisedByThisDevice = item.observerId === state.deviceId;
-    const canSubmitCloseout = state.role === "admin" || raisedByThisDevice || item.observerCanClose;
+    const raisedBySignedInUser = currentUser && item.observerUserId === currentUser.id;
+    const canSubmitCloseout = state.role === "admin" || raisedBySignedInUser || raisedByThisDevice || item.observerCanClose;
     closeoutForm.hidden = item.status === "Closed" || !canSubmitCloseout;
     const closeoutText = closeoutForm.querySelector("[name='closeoutAction']");
     const closeoutSubmit = closeoutForm.querySelector("button[type='submit']");
@@ -636,7 +740,7 @@ function renderObservationList(observations) {
     const stateButton = card.querySelector(".state-button");
     const excludeButton = card.querySelector(".exclude-button");
     const closeoutReady = item.status === "Close-out Submitted" || Boolean(item.closeoutAction?.trim());
-    const canApprove = closeoutReady && (state.role === "admin" || raisedByThisDevice || item.observerCanClose);
+    const canApprove = closeoutReady && (state.role === "admin" || raisedBySignedInUser || raisedByThisDevice || item.observerCanClose);
     approvalButton.textContent = item.status === "Closed" ? "Approved" : "Pending Approval";
     approvalButton.disabled = !canApprove || item.status === "Closed";
     approvalButton.classList.toggle("approved", item.status === "Closed");
@@ -656,7 +760,7 @@ function renderObservationList(observations) {
     } else if (!closeoutReady) {
       approvalHelp.textContent = "Complete Action taken, then tap Submit close-out to unlock approval.";
     } else if (!canApprove) {
-      approvalHelp.textContent = "Only the observer who raised this item or an admin can approve it.";
+      approvalHelp.textContent = "Only the logged-in observer who raised this item or an admin can approve it.";
     } else {
       approvalHelp.textContent = "Ready for approval.";
     }
@@ -926,6 +1030,8 @@ function seedDemoData() {
       status: sample[3],
       createdByRole: "member",
       observerId: state.deviceId,
+      observerUserId: currentUser?.id || "",
+      observerEmail: currentUser?.email || "",
       createdAt: date.toISOString(),
       closedAt: sample[3] === "Closed" ? new Date().toISOString() : ""
     });
