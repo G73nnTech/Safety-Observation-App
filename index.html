@@ -9,7 +9,7 @@
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="assets/icon.svg">
-    <link rel="stylesheet" href="styles.css?v=17">
+    <link rel="stylesheet" href="styles.css?v=19">
   </head>
   <body>
     <div class="app-shell">
@@ -112,7 +112,8 @@
                   </svg>
                   Take photo
                 </button>
-                <input id="photoInput" name="photo" type="file" accept="image/*" capture="environment">
+                <input id="cameraPhotoInput" type="file" accept="image/*" capture="environment" hidden>
+                <input id="photoInput" name="photo" type="file" accept="image/*">
               </div>
             </label>
             <div class="photo-preview" id="photoPreview" hidden>
@@ -147,7 +148,8 @@
                     </svg>
                     Take close-out photo
                   </button>
-                  <input id="reportCloseoutPhotoInput" name="reportCloseoutPhoto" type="file" accept="image/*" capture="environment">
+                  <input id="reportCloseoutCameraInput" name="reportCloseoutCameraPhoto" type="file" accept="image/*" capture="environment" hidden>
+                  <input id="reportCloseoutPhotoInput" name="reportCloseoutPhoto" type="file" accept="image/*">
                 </div>
               </label>
               <p class="stage-copy" id="reportCloseoutHelp">Type the action taken here if the observer will close this item now. After submitting, approve it from the Dashboard.</p>
@@ -290,7 +292,8 @@
                 </svg>
                 Take close-out photo
               </button>
-              <input name="closeoutPhoto" type="file" accept="image/*" capture="environment">
+              <input name="closeoutCameraPhoto" type="file" accept="image/*" capture="environment" hidden>
+              <input name="closeoutPhoto" type="file" accept="image/*">
             </div>
           </label>
           <button class="primary-button" type="submit">Submit close-out</button>
@@ -308,6 +311,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=17" defer></script>
+    <script src="app.js?v=19" defer></script>
   </body>
 </html>

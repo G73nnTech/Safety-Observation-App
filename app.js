@@ -39,6 +39,7 @@ const elements = {
   date: $("#dateInput"),
   time: $("#timeInput"),
   photo: $("#photoInput"),
+  cameraPhoto: $("#cameraPhotoInput"),
   photoPreview: $("#photoPreview"),
   photoPreviewImage: $("#photoPreviewImage"),
   removePhoto: $("#removePhotoButton"),
@@ -48,6 +49,7 @@ const elements = {
   observerCloseoutPanel: $("#observerCloseoutPanel"),
   reportCloseoutAction: $("#reportCloseoutActionInput"),
   reportCloseoutPhoto: $("#reportCloseoutPhotoInput"),
+  reportCloseoutCamera: $("#reportCloseoutCameraInput"),
   takeReportCloseoutPhoto: $("#takeReportCloseoutPhotoButton"),
   submitObservation: $("#submitObservationButton"),
   notice: $("#appNotice"),
@@ -97,9 +99,10 @@ function bindEvents() {
 
   elements.form.addEventListener("submit", handleSubmit);
   elements.photo.addEventListener("change", handlePhotoChange);
+  elements.cameraPhoto.addEventListener("change", handlePhotoChange);
   elements.removePhoto.addEventListener("click", clearPhoto);
-  elements.takePhoto.addEventListener("click", () => elements.photo.click());
-  elements.takeReportCloseoutPhoto.addEventListener("click", () => elements.reportCloseoutPhoto.click());
+  elements.takePhoto.addEventListener("click", () => elements.cameraPhoto.click());
+  elements.takeReportCloseoutPhoto.addEventListener("click", () => elements.reportCloseoutCamera.click());
   elements.observerCanClose.addEventListener("change", updateObserverCloseoutPanel);
   elements.reportCloseoutAction.addEventListener("input", updateObserverCloseoutPanel);
   elements.period.addEventListener("change", () => {
@@ -299,6 +302,7 @@ function resizeImage(file, maxSize, quality) {
 function clearPhoto() {
   photoDataUrl = "";
   elements.photo.value = "";
+  elements.cameraPhoto.value = "";
   elements.photoPreviewImage.removeAttribute("src");
   elements.photoPreview.hidden = true;
 }
@@ -307,7 +311,9 @@ async function handleSubmit(event) {
   event.preventDefault();
   const data = new FormData(elements.form);
   const observerCloseoutAction = data.get("reportCloseoutAction")?.trim() || "";
-  const observerCloseoutPhotoFile = data.get("reportCloseoutPhoto");
+  const observerCloseoutPhotoFile = data.get("reportCloseoutPhoto")?.size
+    ? data.get("reportCloseoutPhoto")
+    : data.get("reportCloseoutCameraPhoto");
   const observerCloseoutPhoto = elements.observerCanClose.checked && observerCloseoutPhotoFile?.size
     ? await resizeImage(observerCloseoutPhotoFile, 1200, 0.75)
     : "";
@@ -341,6 +347,7 @@ async function handleSubmit(event) {
   elements.observerCanClose.checked = true;
   elements.reportCloseoutAction.value = "";
   elements.reportCloseoutPhoto.value = "";
+  elements.reportCloseoutCamera.value = "";
   updateObserverCloseoutPanel();
   clearPhoto();
   renderDashboard();
@@ -372,6 +379,7 @@ function updateObserverCloseoutPanel() {
   elements.observerCloseoutPanel.classList.toggle("is-disabled", !enabled);
   elements.reportCloseoutAction.disabled = !enabled;
   elements.reportCloseoutPhoto.disabled = !enabled;
+  elements.reportCloseoutCamera.disabled = !enabled;
   elements.takeReportCloseoutPhoto.disabled = !enabled;
   elements.submitObservation.textContent = enabled && hasCloseoutAction
     ? "Submit observation for approval"
@@ -379,6 +387,7 @@ function updateObserverCloseoutPanel() {
   if (!enabled) {
     elements.reportCloseoutAction.value = "";
     elements.reportCloseoutPhoto.value = "";
+    elements.reportCloseoutCamera.value = "";
   }
 }
 
@@ -618,9 +627,10 @@ function renderObservationList(observations) {
     const closeoutSubmit = closeoutForm.querySelector("button[type='submit']");
     const closeoutCameraButton = closeoutForm.querySelector(".closeout-camera-button");
     const closeoutPhotoInput = closeoutForm.querySelector("[name='closeoutPhoto']");
+    const closeoutCameraInput = closeoutForm.querySelector("[name='closeoutCameraPhoto']");
     closeoutText.value = item.closeoutAction || "";
     closeoutSubmit.textContent = item.status === "Close-out Submitted" ? "Update close-out" : "Submit close-out";
-    closeoutCameraButton.addEventListener("click", () => closeoutPhotoInput.click());
+    closeoutCameraButton.addEventListener("click", () => closeoutCameraInput.click());
 
     const approvalButton = card.querySelector(".approval-button");
     const stateButton = card.querySelector(".state-button");
@@ -680,7 +690,9 @@ async function handleCloseoutSubmit(event) {
 
   const data = new FormData(form);
   const action = data.get("closeoutAction").trim();
-  const file = data.get("closeoutPhoto");
+  const file = data.get("closeoutPhoto")?.size
+    ? data.get("closeoutPhoto")
+    : data.get("closeoutCameraPhoto");
   if (!action) {
     showToast("Type the close-out action first.");
     return;
