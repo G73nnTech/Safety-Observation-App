@@ -9,7 +9,7 @@
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="assets/icon.svg">
-    <link rel="stylesheet" href="styles.css?v=20">
+    <link rel="stylesheet" href="styles.css?v=21">
   </head>
   <body>
     <div class="app-shell">
@@ -43,6 +43,10 @@
             <label>
               Password
               <input id="authPasswordInput" type="password" autocomplete="current-password" minlength="6" required>
+            </label>
+            <label>
+              Short name
+              <input id="authDisplayNameInput" type="text" autocomplete="nickname" maxlength="32" placeholder="Glenn">
             </label>
             <div class="action-row">
               <button class="primary-button" id="signInButton" type="submit">Sign in</button>
@@ -337,6 +341,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=20" defer></script>
+    <script src="app.js?v=21" defer></script>
   </body>
 </html>

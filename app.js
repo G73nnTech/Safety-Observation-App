@@ -39,6 +39,7 @@ const elements = {
   authForm: $("#authForm"),
   authEmail: $("#authEmailInput"),
   authPassword: $("#authPasswordInput"),
+  authDisplayName: $("#authDisplayNameInput"),
   signUp: $("#signUpButton"),
   signOut: $("#signOutButton"),
   userBadge: $("#userBadge"),
@@ -174,6 +175,7 @@ function normalizeObservation(item, deviceId = state?.deviceId || defaultState.d
     observerId: deviceId,
     observerUserId: "",
     observerEmail: "",
+    observerName: "",
     excludedFromDashboard: false,
     closeoutAction: "",
     closeoutPhoto: "",
@@ -237,12 +239,25 @@ async function handleSignUp() {
 
   const email = elements.authEmail.value.trim();
   const password = elements.authPassword.value;
+  const displayName = elements.authDisplayName.value.trim();
   if (!email || password.length < 6) {
     showToast("Enter an email and a password of at least 6 characters.");
     return;
   }
+  if (!displayName) {
+    showToast("Enter a short name.");
+    return;
+  }
 
-  const { data, error } = await supabaseClient.auth.signUp({ email, password });
+  const { data, error } = await supabaseClient.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        display_name: displayName
+      }
+    }
+  });
   if (error) {
     showToast(error.message);
     return;
@@ -266,7 +281,7 @@ async function handleSignOut() {
 function renderAuthState() {
   const signedIn = Boolean(currentUser);
   elements.authPanel.hidden = signedIn;
-  elements.userBadge.textContent = signedIn ? currentUser.email : "Not signed in";
+  elements.userBadge.textContent = signedIn ? getObserverName() : "Not signed in";
   elements.signOut.hidden = !signedIn;
   elements.form.querySelectorAll("input, textarea, button").forEach((control) => {
     if (control.id === "installButton") return;
@@ -275,6 +290,10 @@ function renderAuthState() {
   if (signedIn) {
     updateObserverCloseoutPanel();
   }
+}
+
+function getObserverName() {
+  return currentUser?.user_metadata?.display_name || currentUser?.email?.split("@")[0] || "Observer";
 }
 
 async function loadRemoteObservations() {
@@ -436,6 +455,7 @@ async function handleSubmit(event) {
     observerId: state.deviceId,
     observerUserId: currentUser.id,
     observerEmail: currentUser.email,
+    observerName: getObserverName(),
     createdAt: new Date().toISOString(),
     closedAt: ""
   };
@@ -698,7 +718,7 @@ function renderObservationList(observations) {
     card.querySelector("h4").textContent = item.observation;
     card.querySelector(".card-action").textContent = `Action to be taken: ${item.action}`;
     const assignedTo = item.recipient || state.defaultEmail || "Not assigned";
-    const observedBy = item.observerEmail || "Unknown observer";
+    const observedBy = item.observerName || item.observerEmail || "Unknown observer";
     card.querySelector(".card-meta").textContent = `${item.date} ${item.time} - Observed by: ${observedBy} - Assigned to: ${assignedTo}`;
     card.querySelector(".closeout-form").dataset.id = item.id;
 
@@ -1032,6 +1052,7 @@ function seedDemoData() {
       observerId: state.deviceId,
       observerUserId: currentUser?.id || "",
       observerEmail: currentUser?.email || "",
+      observerName: getObserverName(),
       createdAt: date.toISOString(),
       closedAt: sample[3] === "Closed" ? new Date().toISOString() : ""
     });
