@@ -107,8 +107,7 @@ function bindEvents() {
     });
   });
 
-  elements.authForm.addEventListener("submit", handleSignIn);
-  elements.signUp.addEventListener("click", handleSignUp);
+  elements.authForm.addEventListener("submit", handleAuthSubmit);
   elements.signOut.addEventListener("click", handleSignOut);
   elements.form.addEventListener("submit", handleSubmit);
   elements.photo.addEventListener("change", handlePhotoChange);
@@ -213,8 +212,17 @@ async function initAuth() {
   renderAuthState();
 }
 
-async function handleSignIn(event) {
+async function handleAuthSubmit(event) {
   event.preventDefault();
+  const action = event.submitter?.value || "signin";
+  if (action === "signup") {
+    await handleSignUp();
+    return;
+  }
+  await handleSignIn();
+}
+
+async function handleSignIn() {
   if (!supabaseClient) {
     showToast("Online login is not available.");
     return;
