@@ -463,6 +463,12 @@ textarea:focus {
   background: var(--brand-dark);
 }
 
+.primary-button:disabled,
+.primary-button[aria-busy="true"] {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .secondary-button {
   color: var(--brand-dark);
   background: #ffffff;

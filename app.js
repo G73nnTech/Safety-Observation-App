@@ -3,6 +3,11 @@ const SUPABASE_URL = "https://bwgznqgisfmhxhpqcjoi.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_RbUyN4maE8lXsGsle4o6Jg_V85BK3Kh";
 const SUPABASE_TABLE = "safety_observations";
 const SUPABASE_GROUP_ID = "main";
+const IMAGE_MAX_SIZE = 900;
+const IMAGE_QUALITY = 0.68;
+const IMAGE_RETRY_MAX_SIZE = 700;
+const IMAGE_RETRY_QUALITY = 0.58;
+const IMAGE_DATA_URL_LIMIT = 950000;
 const CATEGORY_COLORS = {
   "Near Miss": "#f59e0b",
   "Unsafe Act": "#dc2626",
@@ -29,6 +34,7 @@ let showExcluded = false;
 let supabaseClient = null;
 let remoteSyncReady = false;
 let currentUser = null;
+let isSubmittingObservation = false;
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -144,6 +150,7 @@ function bindEvents() {
   $("#saveSettingsButton").addEventListener("click", saveSettings);
   $("#resetSetupButton").addEventListener("click", resetSetup);
   $("#seedButton").addEventListener("click", seedDemoData);
+  window.addEventListener("online", syncLocalObservations);
 
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
@@ -182,12 +189,37 @@ function normalizeObservation(item, deviceId = state?.deviceId || defaultState.d
     closeoutPhoto: "",
     closeoutSubmittedAt: "",
     emailPreparedAt: "",
+    updatedAt: item?.updatedAt || item?.createdAt || new Date().toISOString(),
     ...item
   };
 }
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function touchObservation(item) {
+  item.updatedAt = new Date().toISOString();
+  return item;
+}
+
+function getObservationTimestamp(item) {
+  return Date.parse(item.updatedAt || item.closedAt || item.closeoutSubmittedAt || item.createdAt || 0) || 0;
+}
+
+function mergeObservations(localItems, remoteItems) {
+  const merged = new Map();
+  [...localItems, ...remoteItems].forEach((item) => {
+    const normalized = normalizeObservation(item, state.deviceId);
+    const existing = merged.get(normalized.id);
+    if (!existing || getObservationTimestamp(normalized) >= getObservationTimestamp(existing)) {
+      merged.set(normalized.id, normalized);
+    }
+  });
+  return Array.from(merged.values()).sort((a, b) => {
+    const dateDiff = Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0);
+    return dateDiff || getObservationTimestamp(b) - getObservationTimestamp(a);
+  });
 }
 
 function initSupabase() {
@@ -328,26 +360,43 @@ async function loadRemoteObservations() {
   }
 
   remoteSyncReady = true;
-  state.observations = (data || []).map((row) => normalizeObservation(row.payload, state.deviceId));
+  const remoteObservations = (data || []).map((row) => normalizeObservation({
+    ...row.payload,
+    updatedAt: row.payload?.updatedAt || row.updated_at
+  }, state.deviceId));
+  state.observations = mergeObservations(state.observations, remoteObservations);
   saveState();
+  await syncLocalObservations();
   renderDashboard();
   renderNotice();
 }
 
 async function saveObservationRemote(item) {
-  if (!supabaseClient || !currentUser || !remoteSyncReady) return;
+  if (!supabaseClient || !currentUser || !remoteSyncReady) return false;
 
   const { error } = await supabaseClient
     .from(SUPABASE_TABLE)
     .upsert({
       id: item.id,
       group_id: SUPABASE_GROUP_ID,
-      payload: item,
-      updated_at: new Date().toISOString()
-    });
+      payload: normalizeObservation(item, state.deviceId),
+      updated_at: item.updatedAt || new Date().toISOString()
+    })
+    .catch((syncError) => ({ error: syncError }));
 
   if (error) {
     setNotice(`Saved on this device. Online sync failed: ${error.message}`);
+    return false;
+  }
+  return true;
+}
+
+async function syncLocalObservations() {
+  if (!supabaseClient || !currentUser || !remoteSyncReady || !state.observations.length) return;
+  const results = await Promise.allSettled(state.observations.map((item) => saveObservationRemote(item)));
+  const failed = results.some((result) => result.status === "rejected" || result.value === false);
+  if (failed) {
+    setNotice("Some records are saved on this device but could not fully sync online yet.");
   }
 }
 
@@ -403,12 +452,12 @@ function switchView(view) {
 async function handlePhotoChange(event) {
   const file = event.target.files?.[0];
   if (!file) return;
-  photoDataUrl = await resizeImage(file, 1200, 0.75);
+  photoDataUrl = await resizeImage(file);
   elements.photoPreviewImage.src = photoDataUrl;
   elements.photoPreview.hidden = false;
 }
 
-function resizeImage(file, maxSize, quality) {
+function resizeImage(file, maxSize = IMAGE_MAX_SIZE, quality = IMAGE_QUALITY) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = reject;
@@ -422,7 +471,15 @@ function resizeImage(file, maxSize, quality) {
         canvas.height = Math.round(image.height * scale);
         const context = canvas.getContext("2d");
         context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", quality));
+        let dataUrl = canvas.toDataURL("image/jpeg", quality);
+        if (dataUrl.length > IMAGE_DATA_URL_LIMIT && maxSize > IMAGE_RETRY_MAX_SIZE) {
+          const retryScale = Math.min(1, IMAGE_RETRY_MAX_SIZE / Math.max(image.width, image.height));
+          canvas.width = Math.round(image.width * retryScale);
+          canvas.height = Math.round(image.height * retryScale);
+          canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+          dataUrl = canvas.toDataURL("image/jpeg", IMAGE_RETRY_QUALITY);
+        }
+        resolve(dataUrl);
       };
       image.src = reader.result;
     };
@@ -440,62 +497,75 @@ function clearPhoto() {
 
 async function handleSubmit(event) {
   event.preventDefault();
+  if (isSubmittingObservation) return;
   if (!currentUser) {
     showToast("Sign in before submitting an observation.");
     return;
   }
 
-  const data = new FormData(elements.form);
-  const observerCloseoutAction = data.get("reportCloseoutAction")?.trim() || "";
-  const observerCloseoutPhotoFile = data.get("reportCloseoutPhoto")?.size
-    ? data.get("reportCloseoutPhoto")
-    : data.get("reportCloseoutCameraPhoto");
-  const observerCloseoutPhoto = elements.observerCanClose.checked && observerCloseoutPhotoFile?.size
-    ? await resizeImage(observerCloseoutPhotoFile, 1200, 0.75)
-    : "";
-  const observation = {
-    id: crypto.randomUUID ? crypto.randomUUID() : `obs-${Date.now()}`,
-    date: data.get("date"),
-    time: data.get("time"),
-    category: data.get("category"),
-    observation: data.get("observation").trim(),
-    action: data.get("action").trim(),
-    recipient: data.get("recipient").trim(),
-    observerCanClose: elements.observerCanClose.checked,
-    photo: photoDataUrl,
-    status: observerCloseoutAction ? "Close-out Submitted" : "Action Required",
-    closeoutAction: observerCloseoutAction,
-    closeoutPhoto: observerCloseoutPhoto,
-    closeoutSubmittedAt: observerCloseoutAction ? new Date().toISOString() : "",
-    emailPreparedAt: "",
-    createdByRole: state.role,
-    observerId: state.deviceId,
-    observerUserId: currentUser.id,
-    observerEmail: currentUser.email,
-    observerName: getObserverName(),
-    createdAt: new Date().toISOString(),
-    closedAt: ""
-  };
+  let observation = null;
+  setObservationSubmitState(true, "Uploading to cloud...");
+  setNotice("Uploading observation to the cloud. Please wait.");
 
-  state.observations.unshift(observation);
-  saveState();
-  await saveObservationRemote(observation);
-  elements.form.reset();
-  setCurrentDateTime();
-  elements.recipient.value = state.defaultEmail;
-  elements.observerCanClose.checked = true;
-  elements.reportCloseoutAction.value = "";
-  elements.reportCloseoutPhoto.value = "";
-  elements.reportCloseoutCamera.value = "";
-  updateObserverCloseoutPanel();
-  clearPhoto();
-  renderDashboard();
-  showToast("Observation submitted.");
+  try {
+    const data = new FormData(elements.form);
+    const observerCloseoutAction = data.get("reportCloseoutAction")?.trim() || "";
+    const observerCloseoutPhotoFile = data.get("reportCloseoutPhoto")?.size
+      ? data.get("reportCloseoutPhoto")
+      : data.get("reportCloseoutCameraPhoto");
+    const observerCloseoutPhoto = elements.observerCanClose.checked && observerCloseoutPhotoFile?.size
+      ? await resizeImage(observerCloseoutPhotoFile)
+      : "";
+    observation = {
+      id: crypto.randomUUID ? crypto.randomUUID() : `obs-${Date.now()}`,
+      date: data.get("date"),
+      time: data.get("time"),
+      category: data.get("category"),
+      observation: data.get("observation").trim(),
+      action: data.get("action").trim(),
+      recipient: data.get("recipient").trim(),
+      observerCanClose: elements.observerCanClose.checked,
+      photo: photoDataUrl,
+      status: observerCloseoutAction ? "Close-out Submitted" : "Action Required",
+      closeoutAction: observerCloseoutAction,
+      closeoutPhoto: observerCloseoutPhoto,
+      closeoutSubmittedAt: observerCloseoutAction ? new Date().toISOString() : "",
+      emailPreparedAt: "",
+      createdByRole: state.role,
+      observerId: state.deviceId,
+      observerUserId: currentUser.id,
+      observerEmail: currentUser.email,
+      observerName: getObserverName(),
+      createdAt: new Date().toISOString(),
+      closedAt: ""
+    };
 
-  if (observation.recipient) {
-    openObservationEmail(observation);
-  } else {
-    setNotice("Observation saved in the app. It will stay here when you close and reopen.");
+    touchObservation(observation);
+    state.observations.unshift(observation);
+    saveState();
+    const synced = await saveObservationRemote(observation);
+    elements.form.reset();
+    setCurrentDateTime();
+    elements.recipient.value = state.defaultEmail;
+    elements.observerCanClose.checked = true;
+    elements.reportCloseoutAction.value = "";
+    elements.reportCloseoutPhoto.value = "";
+    elements.reportCloseoutCamera.value = "";
+    clearPhoto();
+    renderDashboard();
+    showToast(synced === false ? "Saved on this device. Sync will retry." : "Observation uploaded.");
+
+    if (observation.recipient) {
+      openObservationEmail(observation);
+    } else {
+      setNotice("Observation saved in the app and uploaded to the dashboard.");
+    }
+  } catch (error) {
+    showToast("Could not submit. Please try again.");
+    setNotice(`Submit failed: ${error.message}`);
+  } finally {
+    setObservationSubmitState(false);
+    updateObserverCloseoutPanel();
   }
 }
 
@@ -520,14 +590,27 @@ function updateObserverCloseoutPanel() {
   elements.reportCloseoutPhoto.disabled = !enabled;
   elements.reportCloseoutCamera.disabled = !enabled;
   elements.takeReportCloseoutPhoto.disabled = !enabled;
-  elements.submitObservation.textContent = enabled && hasCloseoutAction
-    ? "Submit observation for approval"
-    : "Submit observation";
+  if (!isSubmittingObservation) {
+    elements.submitObservation.textContent = getSubmitButtonLabel();
+  }
   if (!enabled) {
     elements.reportCloseoutAction.value = "";
     elements.reportCloseoutPhoto.value = "";
     elements.reportCloseoutCamera.value = "";
   }
+}
+
+function getSubmitButtonLabel() {
+  return elements.observerCanClose.checked && elements.reportCloseoutAction.value.trim()
+    ? "Submit observation for approval"
+    : "Submit observation";
+}
+
+function setObservationSubmitState(isUploading, label = "") {
+  isSubmittingObservation = isUploading;
+  elements.submitObservation.disabled = isUploading;
+  elements.submitObservation.setAttribute("aria-busy", String(isUploading));
+  elements.submitObservation.textContent = isUploading ? label : getSubmitButtonLabel();
 }
 
 function renderDashboard() {
@@ -811,6 +894,7 @@ function toggleDashboardExclusion(id) {
   const item = state.observations.find((observation) => observation.id === id);
   if (!item) return;
   item.excludedFromDashboard = !item.excludedFromDashboard;
+  touchObservation(item);
   saveState();
   saveObservationRemote(item);
   renderDashboard();
@@ -840,9 +924,10 @@ async function handleCloseoutSubmit(event) {
   }
 
   item.closeoutAction = action;
-  item.closeoutPhoto = file && file.size ? await resizeImage(file, 1200, 0.75) : item.closeoutPhoto;
+  item.closeoutPhoto = file && file.size ? await resizeImage(file) : item.closeoutPhoto;
   item.closeoutSubmittedAt = new Date().toISOString();
   item.status = "Close-out Submitted";
+  touchObservation(item);
   saveState();
   await saveObservationRemote(item);
   renderDashboard();
@@ -855,6 +940,7 @@ function closeObservation(id) {
   if (!item) return;
   item.status = "Closed";
   item.closedAt = new Date().toISOString();
+  touchObservation(item);
   saveState();
   saveObservationRemote(item);
   renderDashboard();
@@ -985,6 +1071,7 @@ function emailReport() {
 
 function openObservationEmail(item) {
   item.emailPreparedAt = new Date().toISOString();
+  touchObservation(item);
   saveState();
   saveObservationRemote(item);
   renderNotice();
@@ -1050,7 +1137,7 @@ function seedDemoData() {
   samples.forEach((sample, index) => {
     const date = new Date(today);
     date.setDate(today.getDate() - index * 3);
-    state.observations.unshift({
+    state.observations.unshift(touchObservation({
       id: crypto.randomUUID ? crypto.randomUUID() : `demo-${Date.now()}-${index}`,
       date: formatDate(date),
       time: "09:30",
@@ -1072,7 +1159,7 @@ function seedDemoData() {
       observerName: getObserverName(),
       createdAt: date.toISOString(),
       closedAt: sample[3] === "Closed" ? new Date().toISOString() : ""
-    });
+    }));
   });
   saveState();
   Promise.all(state.observations.slice(0, samples.length).map((item) => saveObservationRemote(item)));
