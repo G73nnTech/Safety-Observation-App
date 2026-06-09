@@ -39,6 +39,7 @@ const elements = {
   authForm: $("#authForm"),
   authEmail: $("#authEmailInput"),
   authPassword: $("#authPasswordInput"),
+  passwordToggle: $("#passwordToggleButton"),
   authDisplayName: $("#authDisplayNameInput"),
   signUp: $("#signUpButton"),
   signOut: $("#signOutButton"),
@@ -108,6 +109,7 @@ function bindEvents() {
   });
 
   elements.authForm.addEventListener("submit", handleAuthSubmit);
+  elements.passwordToggle.addEventListener("click", togglePasswordVisibility);
   elements.signOut.addEventListener("click", handleSignOut);
   elements.form.addEventListener("submit", handleSubmit);
   elements.photo.addEventListener("change", handlePhotoChange);
@@ -284,6 +286,13 @@ async function handleSignOut() {
   currentUser = null;
   renderAuthState();
   showToast("Signed out.");
+}
+
+function togglePasswordVisibility() {
+  const isHidden = elements.authPassword.type === "password";
+  elements.authPassword.type = isHidden ? "text" : "password";
+  elements.passwordToggle.setAttribute("aria-label", isHidden ? "Hide password" : "Show password");
+  elements.passwordToggle.title = isHidden ? "Hide password" : "Show password";
 }
 
 function renderAuthState() {
