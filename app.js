@@ -392,15 +392,20 @@ async function loadRemoteObservations() {
 async function saveObservationRemote(item) {
   if (!supabaseClient || !currentUser || !remoteSyncReady) return false;
 
-  const { error } = await supabaseClient
-    .from(SUPABASE_TABLE)
-    .upsert({
-      id: item.id,
-      group_id: SUPABASE_GROUP_ID,
-      payload: normalizeObservation(item, state.deviceId),
-      updated_at: item.updatedAt || new Date().toISOString()
-    })
-    .catch((syncError) => ({ error: syncError }));
+  let error = null;
+  try {
+    const result = await supabaseClient
+      .from(SUPABASE_TABLE)
+      .upsert({
+        id: item.id,
+        group_id: SUPABASE_GROUP_ID,
+        payload: normalizeObservation(item, state.deviceId),
+        updated_at: item.updatedAt || new Date().toISOString()
+      });
+    error = result.error;
+  } catch (syncError) {
+    error = syncError;
+  }
 
   if (error) {
     setNotice(`Saved on this device. Online sync failed: ${error.message}`);
@@ -1065,11 +1070,16 @@ async function deleteSelectedUser() {
 async function deleteObservationsRemote(ids) {
   if (!supabaseClient || !currentUser || !remoteSyncReady || !ids.length) return false;
 
-  const { error } = await supabaseClient
-    .from(SUPABASE_TABLE)
-    .delete()
-    .in("id", ids)
-    .catch((deleteError) => ({ error: deleteError }));
+  let error = null;
+  try {
+    const result = await supabaseClient
+      .from(SUPABASE_TABLE)
+      .delete()
+      .in("id", ids);
+    error = result.error;
+  } catch (deleteError) {
+    error = deleteError;
+  }
 
   if (error) {
     setNotice(`Cloud delete failed: ${error.message}`);
