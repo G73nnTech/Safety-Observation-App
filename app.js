@@ -3,6 +3,7 @@ const SUPABASE_URL = "https://bwgznqgisfmhxhpqcjoi.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_RbUyN4maE8lXsGsle4o6Jg_V85BK3Kh";
 const SUPABASE_TABLE = "safety_observations";
 const SUPABASE_GROUP_ID = "main";
+const SUPABASE_PHOTO_BUCKET = "safety-observation-photos";
 const IMAGE_MAX_SIZE = 900;
 const IMAGE_QUALITY = 0.68;
 const IMAGE_RETRY_MAX_SIZE = 700;
@@ -194,8 +195,12 @@ function normalizeObservation(item, deviceId = state?.deviceId || defaultState.d
     excludedFromDashboard: false,
     closeoutAction: "",
     closeoutPhoto: "",
+    closeoutPhotoPath: "",
+    closeoutPhotoUrl: "",
     closeoutSubmittedAt: "",
     emailPreparedAt: "",
+    photoPath: "",
+    photoUrl: "",
     updatedAt: item?.updatedAt || item?.createdAt || new Date().toISOString(),
     ...item
   };
@@ -376,12 +381,12 @@ async function loadRemoteObservations() {
 
   remoteSyncReady = true;
   const pendingDeletes = new Set(state.pendingDeletedObservationIds);
-  const remoteObservations = (data || [])
+  const remoteObservations = await Promise.all((data || [])
     .filter((row) => !pendingDeletes.has(row.id))
-    .map((row) => normalizeObservation({
+    .map((row) => hydrateRemoteObservation({
       ...row.payload,
       updatedAt: row.payload?.updatedAt || row.updated_at
-    }, state.deviceId));
+    })));
   state.observations = mergeObservations(state.observations, remoteObservations);
   saveState();
   await syncPendingDeletes();
@@ -522,26 +527,45 @@ function resizeImage(file, maxSize = IMAGE_MAX_SIZE, quality = IMAGE_QUALITY) {
 
 async function prepareObservationForRemote(item) {
   const payload = normalizeObservation(item, state.deviceId);
-  payload.photo = await compressExistingPhoto(payload.photo);
-  payload.closeoutPhoto = await compressExistingPhoto(payload.closeoutPhoto);
-
-  if (payload.photo !== item.photo || payload.closeoutPhoto !== item.closeoutPhoto) {
-    item.photo = payload.photo;
-    item.closeoutPhoto = payload.closeoutPhoto;
-    saveState();
-  }
+  await uploadObservationPhoto(item, payload, "photo");
+  await uploadObservationPhoto(item, payload, "closeoutPhoto");
+  payload.photo = "";
+  payload.closeoutPhoto = "";
+  payload.photoUrl = "";
+  payload.closeoutPhotoUrl = "";
   return payload;
 }
 
-function compressExistingPhoto(dataUrl) {
-  if (!dataUrl || dataUrl.length <= IMAGE_DATA_URL_LIMIT) return Promise.resolve(dataUrl);
+async function hydrateRemoteObservation(item) {
+  const observation = normalizeObservation(item, state.deviceId);
+  observation.photoUrl = await getStoredPhotoUrl(observation.photoPath);
+  observation.closeoutPhotoUrl = await getStoredPhotoUrl(observation.closeoutPhotoPath);
+  return observation;
+}
 
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.onload = () => resolve(drawImageToDataUrl(image, IMAGE_RETRY_MAX_SIZE, IMAGE_RETRY_QUALITY));
-    image.onerror = () => resolve(dataUrl);
-    image.src = dataUrl;
-  });
+async function uploadObservationPhoto(item, payload, field) {
+  const dataUrl = item[field];
+  const pathField = field === "photo" ? "photoPath" : "closeoutPhotoPath";
+  const urlField = field === "photo" ? "photoUrl" : "closeoutPhotoUrl";
+  if (!dataUrl?.startsWith("data:image/") || payload[pathField]) return;
+
+  const path = `${SUPABASE_GROUP_ID}/${currentUser.id}/${item.id}-${field}-${Date.now()}.jpg`;
+  const blob = dataUrlToBlob(dataUrl);
+  const { error } = await supabaseClient.storage
+    .from(SUPABASE_PHOTO_BUCKET)
+    .upload(path, blob, {
+      contentType: "image/jpeg",
+      upsert: true
+    });
+
+  if (error) throw error;
+
+  payload[pathField] = path;
+  payload[urlField] = await getStoredPhotoUrl(path);
+  item[pathField] = path;
+  item[urlField] = payload[urlField];
+  item[field] = "";
+  saveState();
 }
 
 function drawImageToDataUrl(image, maxSize, quality) {
@@ -551,6 +575,31 @@ function drawImageToDataUrl(image, maxSize, quality) {
   canvas.height = Math.round(image.height * scale);
   canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
   return canvas.toDataURL("image/jpeg", quality);
+}
+
+function dataUrlToBlob(dataUrl) {
+  const [header, base64] = dataUrl.split(",");
+  const mime = header.match(/data:(.*?);/)?.[1] || "image/jpeg";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
+async function getStoredPhotoUrl(path) {
+  if (!path || !supabaseClient) return "";
+  const { data, error } = await supabaseClient.storage
+    .from(SUPABASE_PHOTO_BUCKET)
+    .createSignedUrl(path, 60 * 60 * 24 * 7);
+  if (error) return "";
+  return data.signedUrl;
+}
+
+function getDisplayPhoto(item, field) {
+  if (field === "closeoutPhoto") return item.closeoutPhoto || item.closeoutPhotoUrl;
+  return item.photo || item.photoUrl;
 }
 
 function clearPhoto() {
@@ -889,8 +938,9 @@ function renderObservationList(observations) {
     card.querySelector(".closeout-form").dataset.id = item.id;
 
     const image = card.querySelector(".card-photo");
-    if (item.photo) {
-      image.src = item.photo;
+    const observationPhoto = getDisplayPhoto(item, "photo");
+    if (observationPhoto) {
+      image.src = observationPhoto;
       image.hidden = false;
     }
 
@@ -903,8 +953,9 @@ function renderObservationList(observations) {
       closeoutSummary.hidden = false;
       closeoutSummary.textContent = "Close-out action is still pending.";
     }
-    if (item.closeoutPhoto) {
-      closeoutImage.src = item.closeoutPhoto;
+    const closeoutPhoto = getDisplayPhoto(item, "closeoutPhoto");
+    if (closeoutPhoto) {
+      closeoutImage.src = closeoutPhoto;
       closeoutImage.hidden = false;
     }
 
@@ -1090,6 +1141,7 @@ async function deleteSelectedUser() {
   elements.deleteUser.disabled = true;
   elements.deleteUser.textContent = "Deleting...";
   const ids = itemsToDelete.map((item) => item.id);
+  const photoPaths = itemsToDelete.flatMap((item) => [item.photoPath, item.closeoutPhotoPath]).filter(Boolean);
   state.pendingDeletedObservationIds = Array.from(new Set([...state.pendingDeletedObservationIds, ...ids]));
 
   state.observations = state.observations.filter((item) => !ids.includes(item.id));
@@ -1098,6 +1150,7 @@ async function deleteSelectedUser() {
   renderAdminUsers();
 
   const deletedOnline = await deleteObservationsRemote(ids);
+  await deleteStoredPhotosRemote(photoPaths);
   elements.deleteUser.textContent = "Delete user";
   showToast(deletedOnline === false ? "Deleted locally. Cloud delete will need retry." : "User records deleted.");
   if (deletedOnline === false) {
@@ -1126,6 +1179,14 @@ async function deleteObservationsRemote(ids) {
   clearPendingDeletes(ids);
   saveState();
   return true;
+}
+
+async function deleteStoredPhotosRemote(paths) {
+  if (!supabaseClient || !currentUser || !paths.length) return false;
+  const { error } = await supabaseClient.storage
+    .from(SUPABASE_PHOTO_BUCKET)
+    .remove(paths);
+  return !error;
 }
 
 function getInviteLink() {

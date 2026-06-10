@@ -34,7 +34,8 @@ http://127.0.0.1:4173/
 
 1. Open Supabase SQL Editor.
 2. Paste and run the contents of `supabase-setup.sql`.
-3. Deploy or refresh the app.
+3. The SQL creates the observation table, the `safety-observation-photos` Storage bucket, and prototype signed-in access policies.
+4. Deploy or refresh the app.
 
 The current Supabase setup requires signed-in users, but role permissions are still prototype-level. Before production use, tighten Row Level Security so only admins can administer all records.
 
