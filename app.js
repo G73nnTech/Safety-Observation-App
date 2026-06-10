@@ -36,6 +36,7 @@ let supabaseClient = null;
 let remoteSyncReady = false;
 let currentUser = null;
 let isSubmittingObservation = false;
+let lastSyncError = "";
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -394,12 +395,13 @@ async function saveObservationRemote(item) {
 
   let error = null;
   try {
+    const payload = await prepareObservationForRemote(item);
     const result = await supabaseClient
       .from(SUPABASE_TABLE)
       .upsert({
         id: item.id,
         group_id: SUPABASE_GROUP_ID,
-        payload: normalizeObservation(item, state.deviceId),
+        payload,
         updated_at: item.updatedAt || new Date().toISOString()
       });
     error = result.error;
@@ -408,9 +410,11 @@ async function saveObservationRemote(item) {
   }
 
   if (error) {
+    lastSyncError = error.message || "Unknown sync error";
     setNotice(`Saved on this device. Online sync failed: ${error.message}`);
     return false;
   }
+  lastSyncError = "";
   return true;
 }
 
@@ -419,7 +423,8 @@ async function syncLocalObservations() {
   const results = await Promise.allSettled(state.observations.map((item) => saveObservationRemote(item)));
   const failed = results.some((result) => result.status === "rejected" || result.value === false);
   if (failed) {
-    setNotice("Some records are saved on this device but could not fully sync online yet.");
+    const reason = lastSyncError ? ` Last error: ${lastSyncError}` : "";
+    setNotice(`Some records are saved on this device but could not fully sync online yet.${reason} Check your connection, then reopen the app to retry.`);
   }
 }
 
@@ -513,6 +518,39 @@ function resizeImage(file, maxSize = IMAGE_MAX_SIZE, quality = IMAGE_QUALITY) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+async function prepareObservationForRemote(item) {
+  const payload = normalizeObservation(item, state.deviceId);
+  payload.photo = await compressExistingPhoto(payload.photo);
+  payload.closeoutPhoto = await compressExistingPhoto(payload.closeoutPhoto);
+
+  if (payload.photo !== item.photo || payload.closeoutPhoto !== item.closeoutPhoto) {
+    item.photo = payload.photo;
+    item.closeoutPhoto = payload.closeoutPhoto;
+    saveState();
+  }
+  return payload;
+}
+
+function compressExistingPhoto(dataUrl) {
+  if (!dataUrl || dataUrl.length <= IMAGE_DATA_URL_LIMIT) return Promise.resolve(dataUrl);
+
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => resolve(drawImageToDataUrl(image, IMAGE_RETRY_MAX_SIZE, IMAGE_RETRY_QUALITY));
+    image.onerror = () => resolve(dataUrl);
+    image.src = dataUrl;
+  });
+}
+
+function drawImageToDataUrl(image, maxSize, quality) {
+  const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(image.width * scale);
+  canvas.height = Math.round(image.height * scale);
+  canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", quality);
 }
 
 function clearPhoto() {
