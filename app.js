@@ -22,7 +22,8 @@ const defaultState = {
   groupId: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()),
   groupName: "Safety Observation Group",
   defaultEmail: "",
-  observations: []
+  observations: [],
+  pendingDeletedObservationIds: []
 };
 
 let state = loadState();
@@ -78,6 +79,9 @@ const elements = {
   resultCount: $("#resultCount"),
   groupName: $("#groupNameInput"),
   defaultEmail: $("#defaultEmailInput"),
+  adminUserSelect: $("#adminUserSelect"),
+  deleteUser: $("#deleteUserButton"),
+  deleteUserNote: $("#deleteUserNote"),
   qrImage: $("#qrImage"),
   qr: $("#qrCanvas"),
   toast: $("#toast"),
@@ -148,9 +152,11 @@ function bindEvents() {
   elements.chart.addEventListener("click", handleChartClick);
   $("#copyInviteButton").addEventListener("click", copyInviteLink);
   $("#saveSettingsButton").addEventListener("click", saveSettings);
+  elements.deleteUser.addEventListener("click", deleteSelectedUser);
   $("#resetSetupButton").addEventListener("click", resetSetup);
   $("#seedButton").addEventListener("click", seedDemoData);
   window.addEventListener("online", syncLocalObservations);
+  window.addEventListener("online", syncPendingDeletes);
 
   window.addEventListener("beforeinstallprompt", (event) => {
     event.preventDefault();
@@ -172,7 +178,7 @@ function loadState() {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
     const merged = { ...defaultState, ...saved };
     const observations = (saved?.observations || []).map((item) => normalizeObservation(item, merged.deviceId));
-    return { ...merged, observations };
+    return { ...merged, observations, pendingDeletedObservationIds: saved?.pendingDeletedObservationIds || [] };
   } catch {
     return { ...defaultState };
   }
@@ -196,6 +202,11 @@ function normalizeObservation(item, deviceId = state?.deviceId || defaultState.d
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function clearPendingDeletes(ids) {
+  const deletedIds = new Set(ids);
+  state.pendingDeletedObservationIds = state.pendingDeletedObservationIds.filter((id) => !deletedIds.has(id));
 }
 
 function touchObservation(item) {
@@ -360,12 +371,16 @@ async function loadRemoteObservations() {
   }
 
   remoteSyncReady = true;
-  const remoteObservations = (data || []).map((row) => normalizeObservation({
-    ...row.payload,
-    updatedAt: row.payload?.updatedAt || row.updated_at
-  }, state.deviceId));
+  const pendingDeletes = new Set(state.pendingDeletedObservationIds);
+  const remoteObservations = (data || [])
+    .filter((row) => !pendingDeletes.has(row.id))
+    .map((row) => normalizeObservation({
+      ...row.payload,
+      updatedAt: row.payload?.updatedAt || row.updated_at
+    }, state.deviceId));
   state.observations = mergeObservations(state.observations, remoteObservations);
   saveState();
+  await syncPendingDeletes();
   await syncLocalObservations();
   renderDashboard();
   renderNotice();
@@ -398,6 +413,11 @@ async function syncLocalObservations() {
   if (failed) {
     setNotice("Some records are saved on this device but could not fully sync online yet.");
   }
+}
+
+async function syncPendingDeletes() {
+  if (!state.pendingDeletedObservationIds.length) return;
+  await deleteObservationsRemote(state.pendingDeletedObservationIds);
 }
 
 function applyInviteFromUrl() {
@@ -962,6 +982,99 @@ function renderAdmin() {
     elements.qr.hidden = false;
     renderQr(link);
   };
+  renderAdminUsers();
+}
+
+function renderAdminUsers() {
+  const users = getObservationUsers();
+  elements.adminUserSelect.innerHTML = "";
+
+  if (!users.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "No observers yet";
+    elements.adminUserSelect.append(option);
+    elements.adminUserSelect.disabled = true;
+    elements.deleteUser.disabled = true;
+    elements.deleteUserNote.textContent = "Observer names will appear after reports are submitted.";
+    return;
+  }
+
+  users.forEach((user) => {
+    const option = document.createElement("option");
+    option.value = user.key;
+    option.textContent = `${user.name} (${user.count})`;
+    elements.adminUserSelect.append(option);
+  });
+  elements.adminUserSelect.disabled = false;
+  elements.deleteUser.disabled = false;
+  elements.deleteUserNote.textContent = "This removes the selected observer's app records from this group.";
+}
+
+function getObservationUsers() {
+  const users = new Map();
+  state.observations.forEach((item) => {
+    const key = getObservationUserKey(item);
+    const name = item.observerName || item.observerEmail || "Unknown observer";
+    const existing = users.get(key) || { key, name, count: 0 };
+    existing.count += 1;
+    users.set(key, existing);
+  });
+  return Array.from(users.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function getObservationUserKey(item) {
+  return item.observerUserId || item.observerEmail || item.observerName || item.observerId || "unknown";
+}
+
+async function deleteSelectedUser() {
+  if (state.role !== "admin") return;
+  const userKey = elements.adminUserSelect.value;
+  if (!userKey) return;
+
+  const users = getObservationUsers();
+  const selectedUser = users.find((user) => user.key === userKey);
+  const userName = selectedUser?.name || "this observer";
+  const itemsToDelete = state.observations.filter((item) => getObservationUserKey(item) === userKey);
+  if (!itemsToDelete.length) return;
+
+  const confirmed = window.confirm(`Delete ${itemsToDelete.length} record(s) for ${userName} from this group? This cannot be undone.`);
+  if (!confirmed) return;
+
+  elements.deleteUser.disabled = true;
+  elements.deleteUser.textContent = "Deleting...";
+  const ids = itemsToDelete.map((item) => item.id);
+  state.pendingDeletedObservationIds = Array.from(new Set([...state.pendingDeletedObservationIds, ...ids]));
+
+  state.observations = state.observations.filter((item) => !ids.includes(item.id));
+  saveState();
+  renderDashboard();
+  renderAdminUsers();
+
+  const deletedOnline = await deleteObservationsRemote(ids);
+  elements.deleteUser.textContent = "Delete user";
+  showToast(deletedOnline === false ? "Deleted locally. Cloud delete will need retry." : "User records deleted.");
+  if (deletedOnline === false) {
+    setNotice("User records were removed from this device, but the cloud delete failed.");
+  }
+}
+
+async function deleteObservationsRemote(ids) {
+  if (!supabaseClient || !currentUser || !remoteSyncReady || !ids.length) return false;
+
+  const { error } = await supabaseClient
+    .from(SUPABASE_TABLE)
+    .delete()
+    .in("id", ids)
+    .catch((deleteError) => ({ error: deleteError }));
+
+  if (error) {
+    setNotice(`Cloud delete failed: ${error.message}`);
+    return false;
+  }
+  clearPendingDeletes(ids);
+  saveState();
+  return true;
 }
 
 function getInviteLink() {

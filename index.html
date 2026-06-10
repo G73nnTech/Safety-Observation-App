@@ -9,7 +9,7 @@
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="assets/icon.svg">
-    <link rel="stylesheet" href="styles.css?v=25">
+    <link rel="stylesheet" href="styles.css?v=26">
   </head>
   <body>
     <div class="app-shell">
@@ -290,6 +290,16 @@
               </label>
               <button class="primary-button" id="saveSettingsButton" type="button">Save settings</button>
             </div>
+
+            <div class="admin-panel">
+              <h3>Users</h3>
+              <label>
+                Observer
+                <select id="adminUserSelect"></select>
+              </label>
+              <button class="danger-button" id="deleteUserButton" type="button">Delete user</button>
+              <p class="muted" id="deleteUserNote">This removes the selected observer's app records from this group.</p>
+            </div>
           </div>
         </section>
       </main>
@@ -349,6 +359,6 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="app.js?v=25" defer></script>
+    <script src="app.js?v=26" defer></script>
   </body>
 </html>
