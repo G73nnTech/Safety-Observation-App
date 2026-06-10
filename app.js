@@ -331,11 +331,14 @@ async function handleSignOut() {
   showToast("Signed out.");
 }
 
-function togglePasswordVisibility() {
+function togglePasswordVisibility(event) {
+  event?.preventDefault();
   const isHidden = elements.authPassword.type === "password";
-  elements.authPassword.type = isHidden ? "text" : "password";
+  elements.authPassword.setAttribute("type", isHidden ? "text" : "password");
+  elements.passwordToggle.classList.toggle("is-visible", isHidden);
   elements.passwordToggle.setAttribute("aria-label", isHidden ? "Hide password" : "Show password");
   elements.passwordToggle.title = isHidden ? "Hide password" : "Show password";
+  elements.authPassword.focus({ preventScroll: true });
 }
 
 function renderAuthState() {
