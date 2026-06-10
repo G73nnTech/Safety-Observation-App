@@ -12,6 +12,20 @@ grant usage on schema public to authenticated;
 grant select, insert, update, delete on public.safety_observations to authenticated;
 revoke all on public.safety_observations from anon;
 
+do $$
+declare
+  policy_name text;
+begin
+  for policy_name in
+    select policyname
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'safety_observations'
+  loop
+    execute format('drop policy if exists %I on public.safety_observations', policy_name);
+  end loop;
+end $$;
+
 drop policy if exists "Allow public read for prototype" on public.safety_observations;
 drop policy if exists "Allow public insert for prototype" on public.safety_observations;
 drop policy if exists "Allow public update for prototype" on public.safety_observations;

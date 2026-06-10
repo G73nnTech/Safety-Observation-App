@@ -251,8 +251,7 @@ function initSupabase() {
 async function initAuth() {
   if (!supabaseClient) return;
 
-  const { data } = await supabaseClient.auth.getSession();
-  currentUser = data.session?.user || null;
+  await refreshCurrentSession();
   supabaseClient.auth.onAuthStateChange(async (_event, session) => {
     currentUser = session?.user || null;
     renderAuthState();
@@ -365,8 +364,23 @@ function getObserverName() {
   return currentUser?.user_metadata?.display_name || currentUser?.email?.split("@")[0] || "Observer";
 }
 
+async function refreshCurrentSession() {
+  if (!supabaseClient) return false;
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error || !data.session?.user) {
+    currentUser = null;
+    renderAuthState();
+    lastSyncError = error?.message || "Login session expired";
+    setNotice("Please sign in again before syncing observations.");
+    return false;
+  }
+  currentUser = data.session.user;
+  return true;
+}
+
 async function loadRemoteObservations() {
   if (!supabaseClient || !currentUser) return;
+  if (!await refreshCurrentSession()) return;
 
   const { data, error } = await supabaseClient
     .from(SUPABASE_TABLE)
@@ -397,6 +411,7 @@ async function loadRemoteObservations() {
 
 async function saveObservationRemote(item) {
   if (!supabaseClient || !currentUser || !remoteSyncReady) return false;
+  if (!await refreshCurrentSession()) return false;
 
   let error = null;
   try {
@@ -416,7 +431,7 @@ async function saveObservationRemote(item) {
 
   if (error) {
     lastSyncError = error.message || "Unknown sync error";
-    setNotice(`Saved on this device. Online sync failed: ${error.message}`);
+    setNotice(getSyncFailureNotice(error.message));
     return false;
   }
   lastSyncError = "";
@@ -428,9 +443,19 @@ async function syncLocalObservations() {
   const results = await Promise.allSettled(state.observations.map((item) => saveObservationRemote(item)));
   const failed = results.some((result) => result.status === "rejected" || result.value === false);
   if (failed) {
-    const reason = lastSyncError ? ` Last error: ${lastSyncError}` : "";
-    setNotice(`Some records are saved on this device but could not fully sync online yet.${reason} Check your connection, then reopen the app to retry.`);
+    setNotice(getSyncFailureNotice(lastSyncError));
   }
+}
+
+function getSyncFailureNotice(message = "") {
+  if (message.toLowerCase().includes("row-level security")) {
+    return `Saved on this device, but Supabase is blocking uploads. Admin must rerun the latest supabase-setup.sql. Last error: ${message}`;
+  }
+  if (message.toLowerCase().includes("bucket") || message.toLowerCase().includes("storage")) {
+    return `Saved on this device, but photo storage is not ready. Admin must rerun the latest supabase-setup.sql. Last error: ${message}`;
+  }
+  const reason = message ? ` Last error: ${message}` : "";
+  return `Some records are saved on this device but could not fully sync online yet.${reason} Check your connection, then reopen the app to retry.`;
 }
 
 async function syncPendingDeletes() {
@@ -1160,6 +1185,7 @@ async function deleteSelectedUser() {
 
 async function deleteObservationsRemote(ids) {
   if (!supabaseClient || !currentUser || !remoteSyncReady || !ids.length) return false;
+  if (!await refreshCurrentSession()) return false;
 
   let error = null;
   try {
@@ -1183,6 +1209,7 @@ async function deleteObservationsRemote(ids) {
 
 async function deleteStoredPhotosRemote(paths) {
   if (!supabaseClient || !currentUser || !paths.length) return false;
+  if (!await refreshCurrentSession()) return false;
   const { error } = await supabaseClient.storage
     .from(SUPABASE_PHOTO_BUCKET)
     .remove(paths);
